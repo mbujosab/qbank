@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qbank"
+version = "0.1.0"
+description = "Question bank generator using propositional calculus"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.9"
+dependencies = [
+    "calcprop>=0.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/mbujosab/qbank"
+Source   = "https://github.com/mbujosab/qbank"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qbank"]
