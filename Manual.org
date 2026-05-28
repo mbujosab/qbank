@@ -1,0 +1,696 @@
+#+TITLE: Manual de uso de =qbank=
+#+AUTHOR: Marcos Bujosa
+#+LANGUAGE: es
+#+OPTIONS: toc:2 num:t
+#+STARTUP: overview
+
+# ─── Configuración de org-babel ───────────────────────────────────
+#+PROPERTY: header-args:python :python python3
+#+PROPERTY: header-args:python :python /home/marcos/SynologyDrive/ReposGH/Docencia/qbank/.venv/bin/python3 :session *qbank*
+
+# ─── LaTeX export ────────────────────────────────────────────────
+#+LATEX_CLASS: report
+#+LATEX_CLASS_OPTIONS: [10pt,a4paper]
+
+#+LATEX_HEADER: \usepackage{fontspec}          % para fuentes Unicode
+#+LATEX_HEADER: \usepackage{lmodern}           % o mejor, define una fuente explícita
+#+LATEX_HEADER: \setmainfont{Latin Modern Roman} % o cualquier otra que quieras
+#+LATEX_HEADER: \usepackage[spanish]{babel}
+# +LATEX_HEADER: \usepackage{parskip}
+#+LATEX_HEADER: \usepackage{tabularx} 
+#+LATEX_HEADER: \usepackage{newunicodechar}
+#+LATEX_HEADER: \usepackage{amssymb}
+#+LATEX_HEADER: \newunicodechar{✓}{\checkmark}
+#+LATEX_HEADER: \newunicodechar{✗}{$\times$}
+#+LATEX_HEADER: \usepackage{etoolbox}
+#+LATEX_HEADER: \AtBeginEnvironment{verbatim}{\small}
+
+* Introducción
+
+=qbank= es una librería Python para generar bancos de preguntas de opción múltiple
+cuyas respuestas correctas se determinan automáticamente mediante cálculo proposicional.
+
+A partir de una lista de supuestos y cuestiones definidos por el usuario, =qbank=
+genera todas las variantes posibles de una pregunta combinando los elementos alternativos.
+Para cada variante calcula cuáles respuestas son correctas y cuáles son falsas, y exporta
+el resultado a los formatos LaTeX/AMC o Moodle.
+
+La librería se apoya en [[https://github.com/mbujosab/calcprop][=calcprop=]], que proporciona el motor de cálculo proposicional.
+
+** Qué puede hacer =qbank=
+
+- Definir preguntas con supuestos e ítems intercambiables.
+- Calcular automáticamente la corrección de cada ítem según las hipótesis activas en
+  cada variante.
+- Exportar las variantes generadas a:
+  - Ficheros =.tex= compatibles con [[https://www.auto-multiple-choice.net/][AMC]] (Auto Multiple Choice).
+  - Ficheros =.tex= compilables con el paquete LaTeX =moodle=, que produce un =.xml=
+    importable en Moodle.
+
+** Instalación rápida (para quien ya conoce Python)
+
+#+begin_src bash
+pip install calcprop calcprop-qbank
+#+end_src
+
+Si no estás familiarizado con Python o los entornos virtuales, lee la sección siguiente.
+
+* Instalación paso a paso
+
+** Requisitos previos
+
+=qbank= requiere Python 3.9 o superior. Comprueba si ya lo tienes instalado:
+
+| Sistema   | Comando en terminal           |
+|-----------+-------------------------------|
+| Linux     | =python3 --version=           |
+| macOS     | =python3 --version=           |
+| Windows   | =py --version=                |
+
+Si el comando devuelve algo como =Python 3.11.2= estás listo. Si no, descarga Python
+desde [[https://www.python.org/downloads/][python.org]] e instálalo (en Windows marca la opción /Add Python to PATH/).
+
+** Qué es un entorno virtual y por qué usarlo
+
+Un entorno virtual es una carpeta que contiene una copia aislada de Python con sus
+propios paquetes instalados, independiente del resto del sistema. Esto evita conflictos
+entre proyectos que requieren versiones distintas de las mismas librerías.
+
+Trabajar siempre dentro de un entorno virtual es una buena práctica, aunque no es
+estrictamente obligatorio para un uso sencillo de =qbank=.
+
+** Crear y activar un entorno virtual
+
+Abre una terminal (en Windows: /Símbolo del sistema/ o /PowerShell/) y sitúate en el
+directorio donde quieres trabajar, por ejemplo:
+
+#+begin_example
+mkdir mis_cuestionarios
+cd mis_cuestionarios
+#+end_example
+
+Crea el entorno virtual (llámalo como quieras; aquí usamos =.venv=):
+
+| Sistema         | Comando                             |
+|-----------------+-------------------------------------|
+| Linux / macOS   | =python3 -m venv .venv=             |
+| Windows (cmd)   | =py -m venv .venv=                  |
+| Windows (PS)    | =py -m venv .venv=                  |
+
+Actívalo:
+
+| Sistema              | Comando                                   |
+|----------------------+-------------------------------------------|
+| Linux / macOS        | =source .venv/bin/activate=               |
+| Windows (cmd)        | =.venv\Scripts\activate.bat=              |
+| Windows (PowerShell) | =.venv\Scripts\Activate.ps1=             |
+
+Cuando el entorno está activo, verás su nombre entre paréntesis al comienzo del
+prompt, por ejemplo =(.venv)=. A partir de ese momento, =pip= y =python= apuntan
+al entorno virtual y no al sistema.
+
+** Instalar =calcprop= y =calcprop-qbank=
+
+Con el entorno activo:
+
+#+begin_src bash
+pip install calcprop calcprop-qbank
+#+end_src
+
+Verifica la instalación:
+
+#+begin_src bash
+python -c "from qbank import *; print('qbank OK')"
+#+end_src
+
+Si ves =qbank OK= todo está en orden.
+
+** Nota para usuarios de Windows
+
+En Windows, dentro del entorno virtual, usa =python= (no =python3=). Si el primer
+=py -m venv .venv= falla con un error de permisos en PowerShell, ejecuta antes:
+
+#+begin_example
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+#+end_example
+
+* Conceptos fundamentales
+
+** Variables proposicionales con =calcprop=
+
+=qbank= importa automáticamente =calcprop=, así que al escribir =from qbank import *=
+tienes acceso al motor lógico. Las variables proposicionales se crean con =v()=:
+
+#+begin_src python :results silent
+from qbank import *
+
+A = v('A')    # variable proposicional A
+#+end_src
+
+Las fórmulas se construyen combinando variables con los operadores de Python:
+
+| Operador Python                             | Conectiva lógica              | Ejemplo                                     |
+|---------------------------------------------+-------------------------------+---------------------------------------------|
+| =-v('A')=                                   | Negación  (¬A)                | =-v('A')=                                   |
+| =v('A') & v('B')=                           | Conjunción  (A $\land$ B)     | =v('A') & v('B')=                           |
+| @@latex:\texttt{v('A') \textbar{} v('B')}@@ | Disyunción  (A $\lor$ B)      | @@latex:\texttt{v('A') \textbar{} v('B')}@@ |
+| =v('A') >> v('B')=                          | Implicación  (A $\implies$ B) | =v('A') >> v('B')=                          |
+| =v('A') ** v('B')=                          | Bicondicional  (A $\iff$ B)   | =v('A') ** v('B')=                          |
+La semantica también acepta =True= (siempre verdadero) o  =False= (siempre falso).
+#+latex: \bigskip
+
+La función =test(formula, hipotesis)= comprueba si una fórmula es consecuencia lógica
+de una lista de fórmulas hipótesis:
+
+#+begin_src python
+test(v('C'), [v('A'), v('A') >> v('C')])    # True  (modus ponens)
+test(v('C'), [v('B')])                      # False (B no implica C)
+test(True,   [])                            # True
+test(False,  [])                            # False
+#+end_src
+
+No necesitas llamar a =test= directamente: =qbank= lo invoca internamente al generar
+las variantes.
+
+** =Supuesto= — una hipótesis del enunciado
+
+Un =Supuesto= es una afirmación que se añade al enunciado del problema y cuya semántica
+se incorpora como hipótesis para evaluar las cuestiones que le siguen.
+
+#+begin_src python
+Supuesto(enunciado, semantica, precond=True)
+#+end_src
+
+#+ATTR_LATEX: :environment tabularx :width \textwidth :align llX 
+| Parámetro   | Tipo         | Descripción                                                                                                                      |
+|-------------+--------------+----------------------------------------------------------------------------------------------------------------------------------|
+| =enunciado= | cadena       | Texto LaTeX del supuesto, tal como aparecerá impreso.                                                                            |
+| =semantica= | fórmula      | Fórmula proposicional que el supuesto afirma verdadera.                                                                          |
+| =precond=   | fórmula/bool | El supuesto solo se activa si esta precondición se cumple bajo las hipótesis ya acumuladas. Por defecto =True= (siempre activo). |
+
+Ejemplo:
+
+#+begin_src python
+Supuesto('$\\mathcal{A}$ es verdadero. ', v('A'))
+Supuesto('$\\mathcal{A} \\Rightarrow \\mathcal{C}$. ', v('A') >> v('C'))
+#+end_src
+
+Si la precondición de un supuesto no se cumple en una variante concreta, esa variante
+se descarta silenciosamente.
+
+** =Cuestion= — un ítem de respuesta
+
+Una =Cuestion= es una posible respuesta en el cuestionario. =qbank= determina
+automáticamente si es verdadera o falsa según las hipótesis activas en cada variante.
+
+#+begin_src python
+Cuestion(enunciado, semantica, precond=True, exp="")
+#+end_src
+
+#+ATTR_LATEX: :environment tabularx :width \textwidth :align llX 
+| Parámetro   | Tipo         | Descripción                                                                                    |
+|-------------+--------------+------------------------------------------------------------------------------------------------|
+| =enunciado= | cadena       | Texto LaTeX del ítem de respuesta.                                                             |
+| =semantica= | fórmula/bool | Fórmula cuya veracidad determina si el ítem es correcto.                                       |
+| =precond=   | fórmula/bool | La cuestión solo aparece en la pregunta si esta precondición se satisface. Por defecto =True=. |
+| =exp=       | cadena       | Explicación/retroalimentación (feedback) en LaTeX. Opcional.                                   |
+
+Ejemplos:
+
+#+begin_src python
+# Ítem siempre incluido; correcto cuando C es verdadero
+Cuestion("Entonces $\\mathcal{C}$ es verdadero", v("C"))
+
+# Ítem siempre falso (False como semántica)
+Cuestion("Esta afirmación es siempre falsa", False)
+
+# Ítem que solo aparece cuando A es verdadero; correcto cuando también B lo es
+Cuestion("$\\mathcal{B}$ es consecuencia de $\\mathcal{A}$", v("B"), precond=v("A"))
+
+# Ítem con retroalimentación para el alumno
+Cuestion("Las columnas son linealmente independientes", -v("Mcoli"),
+         exp=r"Solo cuando $rg(\mathbf{X}) = k$")
+#+end_src
+
+
+** =ProblemaTipo= — un generador de variantes
+
+=ProblemaTipo= toma una lista de elementos y genera todas las combinaciones posibles,
+produciendo una variante por cada combinación. Los elementos de la lista pueden ser:
+
+- Cadenas de texto (texto fijo del enunciado).
+- Un único =Supuesto= o =Cuestion= (aparece igual en todas las variantes).
+- Una *lista* de =Supuesto= o =Cuestion= (en cada variante se elige uno de ellos).
+
+#+begin_src python
+ProblemaTipo(lista_de_elementos)
+#+end_src
+
+=ProblemaTipo= es un iterador: cada llamada a =next()= o cada iteración en un bucle
+=for= devuelve una tupla =(etiqueta, enunciado, cuestiones)=:
+
+| Campo        | Contenido                                                          |
+|--------------+--------------------------------------------------------------------|
+| =etiqueta=   | Número de variante como cadena (="1"=, ="2"=, …).                  |
+| =enunciado=  | Texto completo del enunciado de esa variante.                      |
+| =cuestiones= | Lista de tuplas =(texto, correcto, activa, explicacion)= por ítem. |
+
+Ejemplo mínimo:
+
+#+begin_src python :results output :exports both
+from qbank import *
+
+p = ProblemaTipo([
+    "Dado que ",
+    [
+        Supuesto("$\\mathcal{A}$ es verdadero, ", v("A")),
+        Supuesto("$\\mathcal{B}$ es verdadero, ", v("B")),
+    ],
+    "indique qué opción es correcta: ",
+    [
+        Cuestion("$\\mathcal{A}$ es verdadero.", v("A")),
+        Cuestion("$\\mathcal{B}$ es verdadero.", v("B")),
+    ],
+])
+
+for etiqueta, enunciado, cuestiones in p:
+    print(f"Variante {etiqueta}:\n {enunciado}")
+    for texto, correcto, activa, exp in cuestiones:
+        marca = "✓" if correcto else "✗"
+        print(f"  {texto} {marca}  ")
+#+end_src
+
+#+RESULTS:
+: Variante 1: Dado que $\mathcal{A}$ es verdadero, indique qué opción es correcta: 
+:   $\mathcal{A}$ es verdadero. ✓  
+: Variante 2: Dado que $\mathcal{A}$ es verdadero, indique qué opción es correcta: 
+:   $\mathcal{B}$ es verdadero. ✗  
+: Variante 3: Dado que $\mathcal{B}$ es verdadero, indique qué opción es correcta: 
+:   $\mathcal{A}$ es verdadero. ✗  
+: Variante 4: Dado que $\mathcal{B}$ es verdadero, indique qué opción es correcta: 
+:   $\mathcal{B}$ es verdadero. ✓
+
+#+latex: \bigskip
+
+Este ejemplo produce 4 variantes (2 supuestos × 2 cuestiones).
+
+** =ProblemaVF= — preguntas de verdadero/falso
+
+=ProblemaVF= sirve para un formato distinto: un banco de afirmaciones del que se
+extraen aleatoriamente un subconjunto en cada variante. No usa cálculo proposicional;
+la corrección de cada ítem se indica directamente con =True= o =False=.
+
+#+begin_src python
+ProblemaVF(enunciado, cuestiones, NumPreguntas)
+#+end_src
+
+| Parámetro      | Descripción                                                 |
+|----------------+-------------------------------------------------------------|
+| =enunciado=    | Texto del enunciado común a todas las variantes.            |
+| =cuestiones=   | Lista de tuplas =(texto, correcto)=.                        |
+| =NumPreguntas= | Cuántas afirmaciones se eligen aleatoriamente por variante. |
+
+#+begin_src python :results output :exports both
+enunciado = "Indique qué afirmaciones son verdaderas:"
+banco = [
+    ("Todo alumno que va a clase aprueba",   False),
+    ("Todo alumno que sabe aprueba",         True),
+    ("Si suspenden todos es frustrante",     True),
+    ("Si aprueban todos eres buen profesor", False),
+]
+import random
+random.seed(42) # para generar siempre el mismo ejemplo
+GenVar = iter(ProblemaVF(enunciado, banco, 3))  # 3 ítems por variante
+
+for _ in range(3):
+      etiqueta, enunc, cuestiones = next(GenVar)
+      print(f"\nVariante {etiqueta}:\n {enunc}  ")
+      for texto, correcto in cuestiones:
+          marca = "✓" if correcto else "✗"
+          print(f"  {texto} {marca}") 
+
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Variante 1:
+ Indique qué afirmaciones son verdaderas:
+
+  Todo alumno que va a clase aprueba ✗
+
+  Si aprueban todos eres buen profesor ✗
+
+  Todo alumno que sabe aprueba ✓
+
+
+Variante 2:
+ Indique qué afirmaciones son verdaderas:
+
+  Todo alumno que sabe aprueba ✓
+
+  Todo alumno que va a clase aprueba ✗
+
+  Si suspenden todos es frustrante ✓
+
+
+Variante 3:
+ Indique qué afirmaciones son verdaderas:
+
+  Todo alumno que va a clase aprueba ✗
+
+  Si suspenden todos es frustrante ✓
+
+  Si aprueban todos eres buen profesor ✗
+#+end_example
+
+
+* Exportar a AMC (LaTeX)
+
+Las funciones AMC generan el código LaTeX compatible con Auto Multiple Choice.
+Cada función devuelve una cadena de texto con el bloque =\element{...}= correspondiente.
+
+** Funciones disponibles
+
+| Función          | Descripción                                                       |
+|------------------+-------------------------------------------------------------------|
+| =AMC=            | Pregunta estándar. Incluye solo los ítems con =activa=1=.        |
+| =AMC_VF=         | Pregunta VF. Incluye todos los ítems (activos e inactivos).       |
+| =AMCProfe=       | Como =AMC= pero añade un bloque =\explain{}= con los rechazados. |
+| =AMClastCh=      | Como =AMC= pero añade «Ninguna de las anteriores» al final.       |
+| =AMCmc=          | Como =AMC= pero en formato multicolumna (requiere =ncols=).       |
+| =AMCmcProfe=     | Como =AMCmc= con bloque =\explain{}=.                             |
+| =AMClastChmc=    | Como =AMClastCh= en multicolumna.                                 |
+
+** Firma común
+
+Todas las funciones AMC (excepto las =mc=) tienen la misma firma:
+
+#+begin_src python
+AMC(nombre, etiqueta, enunciado, cuestiones, opc=["", ""])
+#+end_src
+
+Las funciones =mc= añaden el parámetro =ncols= (número de columnas):
+
+#+begin_src python
+AMCmc(nombre, etiqueta, enunciado, cuestiones, ncols, opc=["", ""])
+#+end_src
+
+| Parámetro    | Descripción                                                             |
+|--------------+-------------------------------------------------------------------------|
+| =nombre=     | Nombre del grupo de preguntas (se usa como etiqueta LaTeX).             |
+| =etiqueta=   | Identificador único de esta variante dentro del grupo.                  |
+| =enunciado=  | Texto del enunciado (obtenido de la tupla generada por =ProblemaTipo=). |
+| =cuestiones= | Lista de ítems (obtenida de la tupla generada por =ProblemaTipo=).      |
+| =ncols=      | Número de columnas para el entorno =multicols=.                         |
+| =opc=        | Lista =[instrucciones_extra, opcion_por_defecto]=. Raramente necesario. |
+
+** Ejemplo AMC básico
+
+#+begin_src python
+from qbank import *
+
+p = ProblemaTipo([
+    "Dado que ",
+    [
+        Supuesto("$\\mathcal{A}$ es verdadero. ", v("A")),
+        Supuesto("$\\mathcal{B}$ es verdadero. ", v("B")),
+    ],
+    "indique qué opción es correcta: ",
+    [
+        Cuestion("$\\mathcal{A}$ es verdadero", v("A")),
+        Cuestion("$\\mathcal{B}$ es verdadero", v("B")),
+    ],
+])
+
+nombre = "MiCuestionario"
+with open("preguntas.tex", "w") as f:
+    for etiqueta, enunciado, cuestiones in p:
+        f.write(AMC(nombre, etiqueta, enunciado, cuestiones))
+#+end_src
+
+#+begin_src python :results output :exports results
+with open("preguntas.tex") as f:
+    print(f.read())
+  #+end_src
+
+  #+RESULTS:
+  #+begin_example
+  \element{MiCuestionario}{
+   \begin{questionmult}{MiCuestionario-1}
+    Dado que $\mathcal{A}$ es verdadero. indique qué opción es correcta: 
+       \begin{choices}
+	 \correctchoice{$\mathcal{A}$ es verdadero}
+       \end{choices}
+   \end{questionmult} }
+
+  \element{MiCuestionario}{
+   \begin{questionmult}{MiCuestionario-2}
+    Dado que $\mathcal{A}$ es verdadero. indique qué opción es correcta: 
+       \begin{choices}
+	 \wrongchoice  {$\mathcal{B}$ es verdadero}
+       \end{choices}
+   \end{questionmult} }
+
+  \element{MiCuestionario}{
+   \begin{questionmult}{MiCuestionario-3}
+    Dado que $\mathcal{B}$ es verdadero. indique qué opción es correcta: 
+       \begin{choices}
+	 \wrongchoice  {$\mathcal{A}$ es verdadero}
+       \end{choices}
+   \end{questionmult} }
+
+  \element{MiCuestionario}{
+   \begin{questionmult}{MiCuestionario-4}
+    Dado que $\mathcal{B}$ es verdadero. indique qué opción es correcta: 
+       \begin{choices}
+	 \correctchoice{$\mathcal{B}$ es verdadero}
+       \end{choices}
+   \end{questionmult} }
+  #+end_example
+
+** Ejemplo AMC multicolumna con «Ninguna de las anteriores»
+
+Usando el mismo =p= del ejemplo anterior, basta sustituir =AMC= por =AMClastChmc=
+y añadir el número de columnas:
+
+#+begin_src python
+with open("preguntas.tex", "w") as f:
+    for etiqueta, enunciado, cuestiones in p:
+        f.write(AMClastChmc("MiCuestionario", etiqueta, enunciado, cuestiones, ncols=2))
+#+end_src
+
+Los ítems se distribuyen en dos columnas y se añade automáticamente
+«Ninguna de las anteriores» como última opción.
+
+** Integración en el documento AMC
+
+El código generado debe incluirse en el preámbulo del documento principal de AMC:
+
+#+begin_example
+\input{preguntas.tex}
+#+end_example
+
+Consulta la documentación de AMC para el formato completo del documento.
+
+* Exportar a Moodle (vía LaTeX)
+
+Las funciones =Quiz*= generan un fichero =.tex= que, al compilarlo con LaTeX
+(usando el paquete =moodle=), produce un fichero =.xml= importable en Moodle.
+
+** Flujo de trabajo
+
+#+begin_example
+Python (qbank)  →  .tex  →  pdflatex/xelatex  →  .xml  →  Moodle
+#+end_example
+
+El paquete LaTeX =moodle= genera el =.xml= durante la compilación. Para instalarlo:
+
+#+begin_example
+tlmgr install moodle
+#+end_example
+
+O en distribuciones Debian/Ubuntu:
+
+#+begin_example
+sudo apt install texlive-latex-extra
+#+end_example
+
+** Funciones disponibles
+
+| Función                        | Descripción                                                      |
+|--------------------------------+------------------------------------------------------------------|
+| =QuizMoodle=                   | Genera =.tex= con preguntas de opción múltiple estándar.         |
+| =QuizMoodleLastCh=             | Igual, pero añade «Las demás opciones son falsas» al final.      |
+| =QuizMoodleProfe=              | Versión con puntuación proporcional (fracción por ítem correcto).|
+| =QuizVFMoodle=                 | Para preguntas generadas con =ProblemaVF=.                       |
+| =QuizVFMoodleLastCh=           | Como =QuizVFMoodle= con opción final.                            |
+| =QuizMoodleConVariables=       | Permite plantillas Jinja2 para valores numéricos variables.       |
+| =QuizMoodleLastChConVariables= | Igual, con opción final.                                         |
+| =QuizMoodleProfeConVariables=  | Versión profe con plantillas Jinja2.                             |
+
+** Firma común
+
+#+begin_src python
+QuizMoodle(nombre, directorio, problema, opc=["", ""])
+#+end_src
+
+| Parámetro     | Descripción                                                          |
+|---------------+----------------------------------------------------------------------|
+| =nombre=      | Nombre del cuestionario (aparece en Moodle como categoría).          |
+| =directorio=  | Ruta donde se guardará el =.tex= (debe terminar en =/=).             |
+| =problema=    | Un =ProblemaTipo= iterable, o un diccionario ={nombre: iterable}=.   |
+| =opc=         | =[codigo_latex_extra, texto_opcion_por_defecto]=. Raramente necesario.|
+
+** Ejemplo Moodle completo
+
+#+begin_src python
+from qbank import *
+
+p = ProblemaTipo([
+    "Considere ",
+    [
+        Supuesto("$\\mathcal{A}$ ", v("A")),
+        Supuesto("$\\mathcal{B}$ ", v("B")),
+    ],
+    [
+        Supuesto("y que $\\mathcal{A}\\Rightarrow\\mathcal{C}$. ", v("A") >> v("C")),
+        Supuesto("y que $\\mathcal{B}\\Leftrightarrow\\mathcal{D}$. ", v("B") ** v("D")),
+    ],
+    "Indique qué opción es correcta: ",
+    [
+        Cuestion("Entonces $\\mathcal{C}$ es verdadero", v("C")),
+        Cuestion("Entonces $\\mathcal{D}$ es verdadero", v("D")),
+    ],
+])
+
+QuizMoodleLastCh("EjemploMoodle", "salida/", p)
+#+end_src
+
+Esto crea =salida/EjemploMoodle.tex=. Para obtener el =.xml=:
+
+#+begin_src bash
+cd salida
+pdflatex EjemploMoodle.tex
+#+end_src
+
+Se generan =EjemploMoodle.xml= (para importar en Moodle) y =EjemploMoodle.pdf=
+(vista previa del aspecto de las preguntas).
+
+** Ejemplo con =ProblemaVF= para Moodle
+
+#+begin_src python
+from qbank import *
+
+enunciado = "Indique qué afirmaciones son verdaderas:"
+banco = [
+    ("Todo alumno que va a clase aprueba",   False),
+    ("Todo alumno que sabe aprueba",         True),
+    ("Si suspenden todos es frustrante",     True),
+    ("Si aprueban todos eres buen profesor", False),
+]
+
+b = [(codchar(texto), correcto) for texto, correcto in banco]
+GenVar = iter(ProblemaVF(codchar(enunciado), b, 3))  # 3 ítems por variante
+
+QuizVFMoodleLastCh("EjemploVF", "salida/", GenVar, num=4)  # 4 variantes
+#+end_src
+
+Nota: =codchar()= convierte los caracteres con tilde y la ñ a secuencias LaTeX
+(p.ej. =á= → =\'a=). Es necesario para Moodle porque el =.tex= usa codificación OT1.
+
+* Referencia rápida de la API
+
+** Clases
+
+#+begin_example
+Supuesto(enunciado, semantica, precond=True)
+Cuestion(enunciado, semantica, precond=True, exp="")
+ProblemaTipo(lista)          → itera (etiqueta, enunciado, cuestiones)
+ProblemaTipoProfe(lista)     → como ProblemaTipo, sin descartar ítems rechazados
+ProblemaVF(enunciado, lista, n) → itera (etiqueta, enunciado, cuestiones)
+#+end_example
+
+** Funciones AMC
+
+#+begin_example
+AMC         (nombre, etiqueta, enunciado, cuestiones, opc=["",""])
+AMC_VF      (nombre, etiqueta, enunciado, cuestiones, opc=["","Ninguna..."])
+AMCProfe    (nombre, etiqueta, enunciado, cuestiones, opc=["","Ninguna..."])
+AMClastCh   (nombre, etiqueta, enunciado, cuestiones, opc=["","Ninguna..."])
+AMCmc       (nombre, etiqueta, enunciado, cuestiones, ncols, opc=["","Ninguna..."])
+AMCmcProfe  (nombre, etiqueta, enunciado, cuestiones, ncols, opc=["","Ninguna..."])
+AMClastChmc (nombre, etiqueta, enunciado, cuestiones, ncols, opc=["","Ninguna..."])
+#+end_example
+
+** Funciones Moodle
+
+#+begin_example
+QuizMoodle              (nombre, directorio, problema, opc=["",""])
+QuizMoodleLastCh        (nombre, directorio, problema, opc=["","Las demás..."])
+QuizMoodleProfe         (nombre, directorio, problema, opc=["",""])
+QuizVFMoodle            (nombre, directorio, GenVar, num, opc=["",""])
+QuizVFMoodleLastCh      (nombre, directorio, GenVar, num, opc=["","Las demás..."])
+QuizMoodleConVariables  (nombre, directorio, problema, environment, Valores, opc)
+QuizMoodleLastChConVariables(nombre, directorio, problema, environment, Valores, opc)
+QuizMoodleProfeConVariables (nombre, directorio, problema, environment, Valores, opc)
+#+end_example
+
+** Operadores de =calcprop= (disponibles tras =from qbank import *=)
+
+#+begin_example
+v("X")           variable proposicional X
+-v("X")          negación de X
+v("X") & v("Y")  conjunción (X ∧ Y)
+v("X") | v("Y")  disyunción (X ∨ Y)
+v("X") >> v("Y") implicación (X → Y)
+v("X") ** v("Y") bicondicional (X ↔ Y)
+True             tautología (siempre verdadero)
+False            contradicción (siempre falso)
+
+test(formula, lista_de_formulas)  → bool
+    Devuelve True si formula es consecuencia lógica de la lista de hipótesis.
+#+end_example
+
+* Preguntas frecuentes
+
+** ¿Por qué algunas variantes no se generan?
+
+Si un =Supuesto= tiene una precondición que no se satisface en una combinación
+determinada, esa variante completa se descarta. Es el comportamiento esperado: evita
+combinaciones de hipótesis incoherentes.
+
+** ¿Cómo incluyo texto LaTeX en los enunciados?
+
+Los campos =enunciado= de =Supuesto= y =Cuestion= son cadenas Python ordinarias que
+se insertan tal cual en el =.tex=. Usa cadenas crudas (=r"..."=) para evitar problemas
+con las barras invertidas:
+
+#+begin_src python
+Cuestion(r"$\mathbf{X}^\top\mathbf{X}$ es invertible", -v("Mcoli"))
+#+end_src
+
+** ¿Para qué sirve =codchar=?
+
+La función =codchar(s)= convierte vocales acentuadas y la ñ a secuencias LaTeX:
+
+#+begin_src python
+codchar("á é í ó ú ñ")  # → "\\'a \\'{e} \\'{i} \\'{o} \\'{u} \\~{n}"
+#+end_src
+
+Es necesaria solo para las funciones Moodle, que generan un =.tex= con codificación
+OT1. Para AMC no suele hacer falta si el documento principal usa =inputenc= con UTF-8.
+
+** ¿Cómo genero un diccionario de preguntas de varias secciones?
+
+Pasa un diccionario a las funciones =Quiz*=:
+
+#+begin_src python
+problema = {
+    "Sección-A": ProblemaTipo(lista_A),
+    "Sección-B": ProblemaTipo(lista_B),
+}
+QuizMoodleLastCh("MiExamen", "salida/", problema)
+#+end_src
+
+Cada clave del diccionario se convierte en una categoría dentro del cuestionario Moodle.
